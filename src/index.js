@@ -1,4 +1,4 @@
-const { ApolloServer, gql } = require('apollo-server');
+const { ApolloServer, gql, PubSub } = require('apollo-server');
 
 const typeDefs = gql`
   type Query {
@@ -32,14 +32,25 @@ const typeDefs = gql`
     register(userInfo: UserInfo): RegisterResponse
     login(userInfo: UserInfo): String!
   }
+
+  type Subscription {
+    newUser: User!
+  }
 `;
 
+const NEW_USER = 'NEW_USER';
+
 const resolvers = {
+  Subscription: {
+    newUser: {
+      subscribe: (_, __, { pubsub }) => pubsub.asyncIterator(NEW_USER)
+    }
+  },
   User: {
-    firstLetterOfUsername: parent => {
+    firstLetterOfUsername: (parent) => {
       return parent.username[0];
     },
-    username: parent => {
+    username: (parent) => {
       console.log(parent);
       return parent.username;
     }
@@ -54,31 +65,36 @@ const resolvers = {
   Mutation: {
     login: (_parent, args, _context, _info) => {
       const {
-        userInfo: { username },
+        userInfo: { username }
       } = args;
 
       return username;
     },
-    register: () => ({
-      errors: [
-        {
-          field: 'Username',
-          message: 'Please enter a valid username.'
-        },
-        null,
-      ],
-      user: {
-        id: 1,
-        username: 'Bobby'
-      }
-    }),
-  },
+    register: (_, { userInfo: { username } }, { pubsub }) => {
+      const user = { id: 1 };
+      pubsub.publish(NEW_USER, { newUser: user });
+
+      return {
+        errors: [
+          {
+            field: 'Username',
+            message: 'Please enter a valid username.'
+          }
+        ],
+        user
+      };
+    }
+  }
 };
+
+const pubsub = new PubSub();
 
 const server = new ApolloServer({
   typeDefs,
   resolvers,
-  context: ({ req, res }) => ({ req, res }) // available in resolvers
+  context: ({ req, res }) => ({ req, res, pubsub }) // available in resolvers
 });
 
-server.listen().then(({ url }) => console.log(`(☞ﾟ_ﾟ)☞ Server started at ${url}`));
+server
+  .listen()
+  .then(({ url }) => console.log(`(☞ﾟ_ﾟ)☞ Server started at ${url}`));
